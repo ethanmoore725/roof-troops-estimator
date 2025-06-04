@@ -1,0 +1,6 @@
+flask
+reportlab
+pandas
+numpy
+trimesh
+scipy

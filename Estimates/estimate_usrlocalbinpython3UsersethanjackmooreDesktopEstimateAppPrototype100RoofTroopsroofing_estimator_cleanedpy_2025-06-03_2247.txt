@@ -1,0 +1,7 @@
+
+Base area: 15129.00 sq ft
+Adjusted area (with pitch): 15947.37 sq ft
+Final area (with waste): 17701.58 sq ft
+Material cost: $17701.58
+Labor cost: $17701.58
+Total estimate: $35403.15
