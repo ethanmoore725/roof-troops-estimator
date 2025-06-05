@@ -1,10 +1,8 @@
 # ─────────────────────────────────────────────────────────────
-# render.yaml
+# wsgi.py
 # ─────────────────────────────────────────────────────────────
-services:
-  - type: web
-    name: roof-troops-estimator
-    env: python
-    plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn --bind 0.0.0.0:$PORT wsgi:app"
+
+# This file exists purely so Gunicorn can do:  `import wsgi; app = wsgi.app`
+# Rename “app” if your Flask instance is named differently.
+
+from app import app  # noqa: F401

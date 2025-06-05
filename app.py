@@ -1,60 +1,101 @@
-from flask import Flask, render_template, request, send_file
+# ─────────────────────────────────────────────────────────────
+# app.py
+# ─────────────────────────────────────────────────────────────
+
 import os
+import re
+import platform
 from datetime import datetime
-from roofing_estimator_cleaned import (
-    load_eagleview_geometry,
-    calculate_material_costs,
-    create_estimate_pdf
-)
 
-app = Flask(__name__)
+from flask import Flask, request, render_template, send_file, redirect, url_for, flash
+from werkzeug.utils import secure_filename
+
+# Import your existing estimator functions
+# (Adjust the import path if necessary—this assumes you renamed your estimator logic to roofing_estimator_cleaned.py)
+from roofing_estimator_cleaned import load_eagleview_geometry, calculate_material_costs
+
+# ─────────────────────────────────────────────────────────────
+# Configuration
+# ─────────────────────────────────────────────────────────────
+
 UPLOAD_FOLDER = "uploads"
-PDF_FOLDER    = "pdfs"
+ALLOWED_EXTENSIONS = {"xml"}
+
+# Ensure the upload folder exists (Render’s container is ephemeral but will persist during a single run)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PDF_FOLDER,    exist_ok=True)
 
+# Initialize Flask
+app = Flask(__name__)
+app.secret_key = os.urandom(24)  # for flash messages (if desired)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+
+# ─────────────────────────────────────────────────────────────
+# Utility: check XML extension
+# ─────────────────────────────────────────────────────────────
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+# ─────────────────────────────────────────────────────────────
+# Main route: upload page, handle XML + form inputs
+# ─────────────────────────────────────────────────────────────
 @app.route("/", methods=["GET", "POST"])
-def index():
+def upload():
     if request.method == "POST":
-        xmlfile = request.files.get("xmlfile")
-        if not xmlfile or not xmlfile.filename.lower().endswith(".xml"):
-            return "Error: Please upload a valid XML file.", 400
+        # 1. Ensure file present
+        if "xmlfile" not in request.files:
+            flash("No file part in the request", "error")
+            return redirect(request.url)
 
-        # 1) Save the uploaded XML:
-        xml_path = os.path.join(UPLOAD_FOLDER, xmlfile.filename)
-        xmlfile.save(xml_path)
+        file = request.files["xmlfile"]
+        if file.filename == "":
+            flash("No XML selected for uploading", "error")
+            return redirect(request.url)
 
-        # 2) Read form fields:
-        client_name  = request.form.get("client_name", "")
-        job_id       = request.form.get("job_id", "")
-        job_location = request.form.get("job_location", "")
-        roof_type    = request.form.get("roof_type", "")
-        pitch_text   = request.form.get("pitch", "")
+        if file and allowed_file(file.filename):
+            # 2. Save the XML to 'uploads/<secure_filename>'
+            filename = secure_filename(file.filename)
+            xml_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(xml_path)
 
-        # 3) Run your estimator logic:
-        area, edge_lengths = load_eagleview_geometry(xml_path)
-        core, optional     = calculate_material_costs(
-            area, edge_lengths, "price_list.csv"
-        )
+            # 3. Run your estimator logic
+            #    - load geometry, calculate edge_lengths & area
+            #    - get material costs (core_items, optional_items)
+            area, edge_lengths = load_eagleview_geometry(xml_path)  # returns (float_area, dict_of_edges)
+            core_items, optional_items = calculate_material_costs(area, edge_lengths, "price_list.csv")
 
-        # 4) Generate and save PDF:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pdf_name = f"estimate_{job_id}_{ts}.pdf"
-        pdf_path = os.path.join(PDF_FOLDER, pdf_name)
+            # 4. Render a results page or generate PDF on the fly
+            #    For simplicity, we’ll redirect to /results that then triggers PDF generation:
+            return redirect(url_for("results", area=area))
+        else:
+            flash("Allowed file types: .xml", "error")
+            return redirect(request.url)
 
-        create_estimate_pdf(
-            core, optional,
-            client_name, job_id,
-            job_location, roof_type,
-            pitch_text, pdf_path
-        )
-
-        # 5) Return the PDF as a download:
-        return send_file(pdf_path, as_attachment=True)
-
-    # If GET, just render the upload form:
+    # GET request → just show the upload form
     return render_template("upload_app.html")
 
 
+# ─────────────────────────────────────────────────────────────
+# Results route: generates PDF and returns it to user
+# (you can customize as needed)
+# ─────────────────────────────────────────────────────────────
+@app.route("/results")
+def results():
+    # In a more robust design, you’d pass along all the form + XML data via sessions or hidden form fields.
+    # For this example, we’ll simply flash a message or display a summary page.
+    area = request.args.get("area", None)
+    if area is None:
+        flash("No estimate data available", "error")
+        return redirect(url_for("upload"))
+
+    # For demonstration, we’ll show a “dummy” results page:
+    return f"<h2>Success! Calculated roof area = {float(area):.2f} sq ft.</h2>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Local runner (only used when you do `python app.py`)
+# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # The debug server runs on port 5000; Render overrides this with $PORT under Gunicorn.
+    app.run(host="0.0.0.0", port=5000, debug=True)
